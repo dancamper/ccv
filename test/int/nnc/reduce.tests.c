@@ -967,6 +967,33 @@ TEST_CASE("reduce isnan float")
 	ccv_nnc_tensor_free(bt);
 }
 
+TEST_CASE("reduce isnan or inf on GPU")
+{
+	GUARD_ELSE_RETURN(ccv_nnc_cmd_ok(CCV_NNC_REDUCE_ISNAN_OR_INF_FORWARD, CCV_NNC_BACKEND_GPU_CUDNN) || ccv_nnc_cmd_ok(CCV_NNC_REDUCE_ISNAN_OR_INF_FORWARD, CCV_NNC_BACKEND_MPS));
+	ccv_nnc_tensor_t* const ha = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(32F, 4), 0);
+	ccv_nnc_tensor_t* const expected = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(32S, 4), 0);
+	ha->data.f32[0] = 1;
+	ha->data.f32[1] = NAN;
+	ha->data.f32[2] = INFINITY;
+	ha->data.f32[3] = -INFINITY;
+	expected->data.i32[0] = 0;
+	expected->data.i32[1] = 1;
+	expected->data.i32[2] = 1;
+	expected->data.i32[3] = 1;
+	ccv_nnc_tensor_t* const a = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 32F, 4), 0);
+	ccv_nnc_tensor_t* const b = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 32S, 4), 0);
+	ccv_nnc_tensor_t* const hb = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(32S, 4), 0);
+	ccv_nnc_cmd_exec(CMD_DATA_TRANSFER_FORWARD(), ccv_nnc_no_hint, 0, TENSOR_LIST(ha), TENSOR_LIST(a), 0);
+	ccv_nnc_cmd_exec(CMD_REDUCE_ISNAN_OR_INF_FORWARD(), ccv_nnc_no_hint, 0, TENSOR_LIST(a), TENSOR_LIST(b), 0);
+	ccv_nnc_cmd_exec(CMD_DATA_TRANSFER_FORWARD(), ccv_nnc_no_hint, 0, TENSOR_LIST(b), TENSOR_LIST(hb), 0);
+	REQUIRE_TENSOR_EQ(expected, hb, "GPU should identify NaN and both infinities");
+	ccv_nnc_tensor_free(ha);
+	ccv_nnc_tensor_free(expected);
+	ccv_nnc_tensor_free(a);
+	ccv_nnc_tensor_free(b);
+	ccv_nnc_tensor_free(hb);
+}
+
 TEST_CASE("reduce isnan in half precision")
 {
 	GUARD_ELSE_RETURN(ccv_nnc_cmd_ok(CCV_NNC_REDUCE_ISNAN_FORWARD, CCV_NNC_BACKEND_GPU_CUDNN) || ccv_nnc_cmd_ok(CCV_NNC_REDUCE_ISNAN_FORWARD, CCV_NNC_BACKEND_MPS));

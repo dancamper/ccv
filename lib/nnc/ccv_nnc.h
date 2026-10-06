@@ -4535,6 +4535,14 @@ void ccv_cnnp_model_parameters_clip_grad_norm(ccv_cnnp_model_t* const model, con
  * @return 1 if it has any nan, 0 otherwise.
  */
 int ccv_cnnp_model_parameter_gradients_isnan(ccv_cnnp_model_t* const model, const ccv_cnnp_model_io_t parameters, ccv_nnc_stream_context_t* const stream_context);
+/**
+ * Process parameter gradients to check if any is nan or infinity.
+ * @param model The composed model to have parameters mapped.
+ * @param parameters The parameters to be mapped.
+ * @param stream_context The stream context to be associated with.
+ * @return 1 if it has any nan or infinity, 0 otherwise.
+ */
+int ccv_cnnp_model_parameter_gradients_has_non_finite(ccv_cnnp_model_t* const model, const ccv_cnnp_model_io_t parameters, ccv_nnc_stream_context_t* const stream_context);
 
 enum {
 	CCV_CNNP_IO, /**< The parameter is a ccv_cnnp_io_t. */

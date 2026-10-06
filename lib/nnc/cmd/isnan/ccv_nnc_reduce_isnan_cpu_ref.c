@@ -25,6 +25,11 @@ static int is_fp16_nan(unsigned short fp16) // From Claude.
 	return (exponent == 0x1F) && (fraction != 0);
 }
 
+static int is_fp16_nan_or_inf(const unsigned short fp16)
+{
+	return ((fp16 >> 10) & 0x1F) == 0x1F;
+}
+
 static int _ccv_nnc_reduce_isnan_forw_f16(const ccv_nnc_cmd_t cmd, const ccv_nnc_hint_t hint, const int flags, ccv_nnc_tensor_t* const* const inputs, const int input_size, ccv_nnc_tensor_t* const* const outputs, const int output_size, ccv_nnc_stream_context_t* const stream_context)
 {
 	assert(input_size == 1);
@@ -63,11 +68,11 @@ static int _ccv_nnc_reduce_isnan_forw_f16(const ccv_nnc_cmd_t cmd, const ccv_nnc
 				if (bdim[3] == 1)
 				{
 					for (x = 0; x < adim[3]; x++)
-						if (is_fp16_nan(ap1[x]))
+						if (cmd.cmd == CCV_NNC_REDUCE_ISNAN_OR_INF_FORWARD ? is_fp16_nan_or_inf(ap1[x]) : is_fp16_nan(ap1[x]))
 							bp2[0] = 1;
 				} else {
 					for (x = 0; x < adim[3]; x++)
-						if (is_fp16_nan(ap1[x]))
+						if (cmd.cmd == CCV_NNC_REDUCE_ISNAN_OR_INF_FORWARD ? is_fp16_nan_or_inf(ap1[x]) : is_fp16_nan(ap1[x]))
 							bp2[x] = 1;
 				}
 				ap1 += astride[2];
@@ -115,11 +120,11 @@ static int _ccv_nnc_reduce_isnan_forw_f32(const ccv_nnc_cmd_t cmd, const ccv_nnc
 				if (bdim[3] == 1)
 				{
 					for (x = 0; x < adim[3]; x++)
-						if (isnan(ap1[x]))
+						if (cmd.cmd == CCV_NNC_REDUCE_ISNAN_OR_INF_FORWARD ? !isfinite(ap1[x]) : isnan(ap1[x]))
 							bp2[0] = 1;
 				} else {
 					for (x = 0; x < adim[3]; x++)
-						if (isnan(ap1[x]))
+						if (cmd.cmd == CCV_NNC_REDUCE_ISNAN_OR_INF_FORWARD ? !isfinite(ap1[x]) : isnan(ap1[x]))
 							bp2[x] = 1;
 				}
 				ap1 += astride[2];
@@ -155,6 +160,24 @@ REGISTER_COMMAND_BACKEND(CCV_NNC_REDUCE_ISNAN_FORWARD, CCV_NNC_BACKEND_CPU_REF)(
 }
 
 REGISTER_COMMAND_BACKEND(CCV_NNC_REDUCE_ISNAN_BACKWARD, CCV_NNC_BACKEND_CPU_REF)(ccv_nnc_cmd_backend_registry_t* const registry)
+{
+	registry->tensor_formats = CCV_TENSOR_FORMAT_NHWC | CCV_TENSOR_FORMAT_NCHW | CCV_TENSOR_FORMAT_CHWN;
+	registry->tensor_datatypes = CCV_32F | CCV_32S | CCV_16F;
+	registry->tensor_memory = CCV_TENSOR_CPU_MEMORY;
+	registry->algorithms = 1;
+	registry->exec = _ccv_nnc_reduce_isnan_back;
+}
+
+REGISTER_COMMAND_BACKEND(CCV_NNC_REDUCE_ISNAN_OR_INF_FORWARD, CCV_NNC_BACKEND_CPU_REF)(ccv_nnc_cmd_backend_registry_t* const registry)
+{
+	registry->tensor_formats = CCV_TENSOR_FORMAT_NHWC | CCV_TENSOR_FORMAT_NCHW | CCV_TENSOR_FORMAT_CHWN;
+	registry->tensor_datatypes = CCV_32F | CCV_32S | CCV_16F;
+	registry->tensor_memory = CCV_TENSOR_CPU_MEMORY;
+	registry->algorithms = 1;
+	registry->exec = _ccv_nnc_reduce_isnan_forw;
+}
+
+REGISTER_COMMAND_BACKEND(CCV_NNC_REDUCE_ISNAN_OR_INF_BACKWARD, CCV_NNC_BACKEND_CPU_REF)(ccv_nnc_cmd_backend_registry_t* const registry)
 {
 	registry->tensor_formats = CCV_TENSOR_FORMAT_NHWC | CCV_TENSOR_FORMAT_NCHW | CCV_TENSOR_FORMAT_CHWN;
 	registry->tensor_datatypes = CCV_32F | CCV_32S | CCV_16F;
