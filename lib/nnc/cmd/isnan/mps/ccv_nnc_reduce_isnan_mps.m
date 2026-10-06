@@ -19,7 +19,7 @@ static int _ccv_nnc_reduce_isnan_forw(const ccv_nnc_cmd_t cmd, const ccv_nnc_hin
 	int noop = 1;
 	int i;
 	for (i = 0; noop && i < a_nd; i++)
-		noop = btv.info.dim[i] != atv.info.dim[i];
+		noop = btv.info.dim[i] == atv.info.dim[i];
 	@autoreleasepool {
 		MPSCommandBuffer* command_buffer = ccv_nnc_stream_context_start_mps_command_buffer(stream_context);
 		if (noop)
