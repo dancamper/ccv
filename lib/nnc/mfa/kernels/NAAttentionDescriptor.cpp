@@ -313,13 +313,11 @@ AttentionOperands<GEMMOperandPrecision> NAAttentionDescriptor::createMemoryPreci
     memoryPrecisions[AttentionOperand::dO] = GEMMOperandPrecision::FP32;
   }
 
-  if (lowPrecisionIntermediates) {
-    memoryPrecisions[AttentionOperand::L] = isBF16 ? GEMMOperandPrecision::BF16 : GEMMOperandPrecision::FP16;
-    memoryPrecisions[AttentionOperand::D] = GEMMOperandPrecision::BF16;
-  } else {
-    memoryPrecisions[AttentionOperand::L] = GEMMOperandPrecision::FP32;
-    memoryPrecisions[AttentionOperand::D] = GEMMOperandPrecision::FP32;
-  }
+  // The public SDPA auxiliary output is always declared as Float32. Keep the
+  // saved log-sum-exp in that precision because backward consumes this buffer.
+  memoryPrecisions[AttentionOperand::L] = GEMMOperandPrecision::FP32;
+  memoryPrecisions[AttentionOperand::D] =
+      lowPrecisionIntermediates ? GEMMOperandPrecision::BF16 : GEMMOperandPrecision::FP32;
 
   if (lowPrecisionInputs) {
     const auto lowPrecision = isBF16 ? GEMMOperandPrecision::BF16 : GEMMOperandPrecision::FP16;

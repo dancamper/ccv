@@ -8774,6 +8774,117 @@ TEST_CASE("scaled dot product attention with quantized NA mps across V-mean redu
 	}
 }
 
+TEST_CASE("quantized half precision attention stores sharp-logit LSE as Float32 on mps")
+{
+	GUARD_ELSE_RETURN(ccv_nnc_cmd_ok(CCV_NNC_SCALED_DOT_PRODUCT_ATTENTION_FORWARD, CCV_NNC_BACKEND_MPS));
+	const int B = 1, R = 128, C = 128, Hq = 48, Hk = 12, D = 128;
+	const int q_count = B * R * Hq * D;
+	const int kv_count = B * C * Hk * D;
+	const int lse_count = B * Hq * R;
+	ccv_nnc_tensor_t* const q = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(16F, B, R, Hq, D), 0);
+	ccv_nnc_tensor_t* const k = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(16F, B, C, Hk, D), 0);
+	ccv_nnc_tensor_t* const v = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(16F, B, C, Hk, D), 0);
+	float* const q32 = (float*)ccmalloc(sizeof(float) * q_count);
+	float* const k32 = (float*)ccmalloc(sizeof(float) * kv_count);
+	float* const v32 = (float*)cccalloc(kv_count, sizeof(float));
+	for (int i = 0; i < q_count; i++)
+		q32[i] = 15;
+	for (int i = 0; i < kv_count; i++)
+		k32[i] = 15;
+	ccv_float_to_half_precision(q32, (uint16_t*)q->data.f16, q_count);
+	ccv_float_to_half_precision(k32, (uint16_t*)k->data.f16, kv_count);
+	ccv_float_to_half_precision(v32, (uint16_t*)v->data.f16, kv_count);
+	ccv_nnc_tensor_t* const gpu_q = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 16F, B, R, Hq, D), 0);
+	ccv_nnc_tensor_t* const gpu_k = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 16F, B, C, Hk, D), 0);
+	ccv_nnc_tensor_t* const gpu_v = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 16F, B, C, Hk, D), 0);
+	ccv_nnc_tensor_t* const gpu_o = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 16F, B, R, Hq, D), 0);
+	ccv_nnc_tensor_t* const gpu_lse = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 32F, B, Hq, R), 0);
+	ccv_nnc_tensor_t* const lse = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(32F, B, Hq, R), 0);
+	ccv_nnc_cmd_exec(CMD_DATA_TRANSFER_FORWARD(), ccv_nnc_no_hint, 0, TENSOR_LIST(q, k, v), TENSOR_LIST(gpu_q, gpu_k, gpu_v), 0);
+	ccv_nnc_cmd_t forward = CMD_SCALED_DOT_PRODUCT_ATTENTION_FORWARD(1, 0);
+	forward.info.scaled_dot_product_attention.flags = CCV_NNC_GEMM_16F | CCV_NNC_GEMM_8I;
+	ccv_nnc_cmd_exec(forward, ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_q, gpu_k, gpu_v, 0, 0, 0), TENSOR_LIST(gpu_o, gpu_lse), 0);
+	ccv_nnc_cmd_exec(CMD_DATA_TRANSFER_FORWARD(), ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_lse), TENSOR_LIST(lse), 0);
+	for (int i = 0; i < lse_count; i++)
+		REQUIRE(isfinite(lse->data.f32[i]) && lse->data.f32[i] > 40000 && lse->data.f32[i] < 43000,
+			"sharp-logit LSE must be stored as Float32 (index %d value %g)", i, lse->data.f32[i]);
+	ccfree(q32); ccfree(k32); ccfree(v32);
+	ccv_nnc_tensor_free(q); ccv_nnc_tensor_free(k); ccv_nnc_tensor_free(v);
+	ccv_nnc_tensor_free(gpu_q); ccv_nnc_tensor_free(gpu_k); ccv_nnc_tensor_free(gpu_v);
+	ccv_nnc_tensor_free(gpu_o); ccv_nnc_tensor_free(gpu_lse); ccv_nnc_tensor_free(lse);
+}
+
+TEST_CASE("quantized half precision attention backward remains finite with Float32 LSE on mps")
+{
+	GUARD_ELSE_RETURN(ccv_nnc_cmd_ok(CCV_NNC_SCALED_DOT_PRODUCT_ATTENTION_FORWARD, CCV_NNC_BACKEND_MPS) &&
+		ccv_nnc_cmd_ok(CCV_NNC_SCALED_DOT_PRODUCT_ATTENTION_BACKWARD, CCV_NNC_BACKEND_MPS));
+	const int B = 1, R = 128, C = 128, Hq = 48, Hk = 12, D = 128;
+	const int q_count = B * R * Hq * D;
+	const int kv_count = B * C * Hk * D;
+	const int lse_count = B * Hq * R;
+	ccv_nnc_tensor_t* const q = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(16F, B, R, Hq, D), 0);
+	ccv_nnc_tensor_t* const k = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(16F, B, C, Hk, D), 0);
+	ccv_nnc_tensor_t* const v = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(16F, B, C, Hk, D), 0);
+	ccv_nnc_tensor_t* const g = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(16F, B, R, Hq, D), 0);
+	float* const q32 = (float*)ccmalloc(sizeof(float) * q_count);
+	float* const k32 = (float*)ccmalloc(sizeof(float) * kv_count);
+	float* const v32 = (float*)ccmalloc(sizeof(float) * kv_count);
+	float* const g32 = (float*)ccmalloc(sizeof(float) * q_count);
+	dsfmt_t dsfmt;
+	dsfmt_init_gen_rand(&dsfmt, 140);
+	for (int i = 0; i < q_count; i++)
+		q32[i] = 1, g32[i] = dsfmt_genrand_open_close(&dsfmt) - 0.5;
+	for (int i = 0; i < kv_count; i++)
+		k32[i] = 1, v32[i] = dsfmt_genrand_open_close(&dsfmt) - 0.5;
+	ccv_float_to_half_precision(q32, (uint16_t*)q->data.f16, q_count);
+	ccv_float_to_half_precision(k32, (uint16_t*)k->data.f16, kv_count);
+	ccv_float_to_half_precision(v32, (uint16_t*)v->data.f16, kv_count);
+	ccv_float_to_half_precision(g32, (uint16_t*)g->data.f16, q_count);
+	ccv_nnc_tensor_t* const gpu_q = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 16F, B, R, Hq, D), 0);
+	ccv_nnc_tensor_t* const gpu_k = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 16F, B, C, Hk, D), 0);
+	ccv_nnc_tensor_t* const gpu_v = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 16F, B, C, Hk, D), 0);
+	ccv_nnc_tensor_t* const gpu_g = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 16F, B, R, Hq, D), 0);
+	ccv_nnc_tensor_t* const gpu_o = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 16F, B, R, Hq, D), 0);
+	ccv_nnc_tensor_t* const gpu_lse = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 32F, B, Hq, R), 0);
+	ccv_nnc_tensor_t* const gpu_dq = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 16F, B, R, Hq, D), 0);
+	ccv_nnc_tensor_t* const gpu_dk = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 16F, B, C, Hk, D), 0);
+	ccv_nnc_tensor_t* const gpu_dv = ccv_nnc_tensor_new(0, GPU_TENSOR_NHWC(000, 16F, B, C, Hk, D), 0);
+	ccv_nnc_tensor_t* const lse = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(32F, B, Hq, R), 0);
+	ccv_nnc_tensor_t* const dq = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(16F, B, R, Hq, D), 0);
+	ccv_nnc_tensor_t* const dk = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(16F, B, C, Hk, D), 0);
+	ccv_nnc_tensor_t* const dv = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(16F, B, C, Hk, D), 0);
+	ccv_nnc_cmd_exec(CMD_DATA_TRANSFER_FORWARD(), ccv_nnc_no_hint, 0, TENSOR_LIST(q, k, v, g), TENSOR_LIST(gpu_q, gpu_k, gpu_v, gpu_g), 0);
+	ccv_nnc_cmd_t forward = CMD_SCALED_DOT_PRODUCT_ATTENTION_FORWARD(1, 0);
+	forward.info.scaled_dot_product_attention.flags = CCV_NNC_GEMM_16F | CCV_NNC_GEMM_8I;
+	ccv_nnc_cmd_exec(forward, ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_q, gpu_k, gpu_v, 0, 0, 0), TENSOR_LIST(gpu_o, gpu_lse), 0);
+	ccv_nnc_cmd_t backward = CMD_SCALED_DOT_PRODUCT_ATTENTION_BACKWARD(1, 0);
+	backward.info.scaled_dot_product_attention.flags = CCV_NNC_GEMM_16F | CCV_NNC_GEMM_8I;
+	ccv_nnc_cmd_exec(backward, ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_g, 0, 0, gpu_q, gpu_k, gpu_v, 0, 0, 0, gpu_o, gpu_lse), TENSOR_LIST(gpu_dq, gpu_dk, gpu_dv), 0);
+	ccv_nnc_cmd_exec(CMD_DATA_TRANSFER_FORWARD(), ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_lse, gpu_dq, gpu_dk, gpu_dv), TENSOR_LIST(lse, dq, dk, dv), 0);
+	for (int i = 0; i < lse_count; i++)
+		REQUIRE(isfinite(lse->data.f32[i]) && lse->data.f32[i] > 180 && lse->data.f32[i] < 200,
+			"saved LSE must be a populated Float32 tensor (index %d value %g)", i, lse->data.f32[i]);
+	for (int i = 0; i < q_count; i++)
+	{
+		float value;
+		ccv_half_precision_to_float((uint16_t*)dq->data.f16 + i, &value, 1);
+		REQUIRE(isfinite(value), "quantized attention dQ must remain finite at %d", i);
+	}
+	for (int i = 0; i < kv_count; i++)
+	{
+		float value;
+		ccv_half_precision_to_float((uint16_t*)dk->data.f16 + i, &value, 1);
+		REQUIRE(isfinite(value), "quantized attention dK must remain finite at %d", i);
+		ccv_half_precision_to_float((uint16_t*)dv->data.f16 + i, &value, 1);
+		REQUIRE(isfinite(value), "quantized attention dV must remain finite at %d", i);
+	}
+	ccfree(q32); ccfree(k32); ccfree(v32); ccfree(g32);
+	ccv_nnc_tensor_free(q); ccv_nnc_tensor_free(k); ccv_nnc_tensor_free(v); ccv_nnc_tensor_free(g);
+	ccv_nnc_tensor_free(gpu_q); ccv_nnc_tensor_free(gpu_k); ccv_nnc_tensor_free(gpu_v); ccv_nnc_tensor_free(gpu_g);
+	ccv_nnc_tensor_free(gpu_o); ccv_nnc_tensor_free(gpu_lse); ccv_nnc_tensor_free(gpu_dq); ccv_nnc_tensor_free(gpu_dk); ccv_nnc_tensor_free(gpu_dv);
+	ccv_nnc_tensor_free(lse); ccv_nnc_tensor_free(dq); ccv_nnc_tensor_free(dk); ccv_nnc_tensor_free(dv);
+}
+
 TEST_CASE("scaled dot product attention gradient with quantized NA mps")
 {
 	GUARD_ELSE_RETURN(ccv_nnc_cmd_ok(CCV_NNC_SCALED_DOT_PRODUCT_ATTENTION_FORWARD, CCV_NNC_BACKEND_MPS) &&

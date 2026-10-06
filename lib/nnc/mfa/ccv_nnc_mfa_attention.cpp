@@ -262,11 +262,7 @@ void ccv_nnc_mfa_encode_attention(mfa::context* context, ccv_nnc_mfa_attention_p
           (size_t)batchDimension * hash.Hk * hash.D * sizeof(float);
       const size_t blockMaskBytes =
           hash.masked ? (size_t)batch_sizes[1] * qTiles * kTiles * sizeof(uint8_t) : 0;
-      const GEMMOperandPrecision lPrecision =
-          attentionDesc.lowPrecisionIntermediates ?
-          (attentionDesc.ioPrecision == GEMMOperandPrecision::BF16 ? GEMMOperandPrecision::BF16 :
-              (attentionDesc.ioPrecision == GEMMOperandPrecision::FP32 ? GEMMOperandPrecision::FP32 : GEMMOperandPrecision::FP16)) :
-          GEMMOperandPrecision::FP32;
+      const GEMMOperandPrecision lPrecision = GEMMOperandPrecision::FP32;
       const size_t lBytes = (size_t)batchDimension * hash.Hq * hash.R * lPrecision.size();
       size_t scratchSize = 0;
       const size_t qInt8Offset = reserve(&scratchSize, qInt8Bytes);

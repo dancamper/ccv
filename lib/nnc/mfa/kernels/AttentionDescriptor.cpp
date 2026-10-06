@@ -370,13 +370,10 @@ AttentionOperands<GEMMOperandPrecision> AttentionDescriptor::createMemoryPrecisi
   // the improvement shrunk from major at small heads, to zero at large
   // ones. The cutoff aligns with the point where the GEMM loops cannot be
   // unrolled (head dimension vastly exceeds head block dimension).
-  if (lowPrecisionIntermediates) {
-    memoryPrecisions[AttentionOperand::L] = isBF16 ? GEMMOperandPrecision::BF16 : GEMMOperandPrecision::FP16;
-    memoryPrecisions[AttentionOperand::D] = GEMMOperandPrecision::BF16;
-  } else {
-    memoryPrecisions[AttentionOperand::L] = GEMMOperandPrecision::FP32;
-    memoryPrecisions[AttentionOperand::D] = GEMMOperandPrecision::FP32;
-  }
+  // The public SDPA auxiliary output is always declared as Float32. Keep the
+  // saved log-sum-exp in that precision because backward consumes this buffer.
+  memoryPrecisions[AttentionOperand::L] = GEMMOperandPrecision::FP32;
+  memoryPrecisions[AttentionOperand::D] = GEMMOperandPrecision::FP32;
   
   // Data for low precision outputs.
   //
@@ -468,13 +465,8 @@ AttentionOperands<GEMMOperandPrecision> AttentionDescriptor::createRegisterPreci
   }
   
   // The register precision of L/D only counts for backward key-value.
-  if (lowPrecisionIntermediates) {
-    registerPrecisions[AttentionOperand::L] = isBF16 ? GEMMOperandPrecision::BF16 : GEMMOperandPrecision::FP16;
-    registerPrecisions[AttentionOperand::D] = hasNativeBF16Casting ? GEMMOperandPrecision::BF16 : GEMMOperandPrecision::FP32;
-  } else {
-    registerPrecisions[AttentionOperand::L] = GEMMOperandPrecision::FP32;
-    registerPrecisions[AttentionOperand::D] = GEMMOperandPrecision::FP32;
-  }
+  registerPrecisions[AttentionOperand::L] = GEMMOperandPrecision::FP32;
+  registerPrecisions[AttentionOperand::D] = GEMMOperandPrecision::FP32;
   
   // The register precision for the attention matrix.
   if (lowPrecisionIntermediates) {

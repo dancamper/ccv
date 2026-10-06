@@ -208,11 +208,7 @@ kernel void compute_v_mean(
 std::string NAInt8AttentionKernel::createSource() const noexcept {
   CodeWriter source;
   const bool vectorizeQuantize = (headDimension % 4) == 0;
-  const GEMMOperandPrecision lPrecision =
-      lowPrecisionIntermediates ?
-      (ioPrecision == GEMMOperandPrecision::BF16 ? GEMMOperandPrecision::BF16 :
-          (ioPrecision == GEMMOperandPrecision::FP32 ? GEMMOperandPrecision::FP32 : GEMMOperandPrecision::FP16)) :
-      GEMMOperandPrecision::FP32;
+  const GEMMOperandPrecision lPrecision = GEMMOperandPrecision::FP32;
   const GEMMOperandPrecision dPrecision =
       lowPrecisionIntermediates ?
       (ioPrecision == GEMMOperandPrecision::FP32 ? GEMMOperandPrecision::FP32 : GEMMOperandPrecision::BF16) :
@@ -1014,11 +1010,7 @@ std::string NAInt8AttentionKernel::createRuntimeConstants(bool quantize) const n
 
 std::string NAInt8AttentionKernel::createBufferBindings() const noexcept {
   CodeWriter source;
-  const GEMMOperandPrecision lPrecision =
-      lowPrecisionIntermediates ?
-      (ioPrecision == GEMMOperandPrecision::BF16 ? GEMMOperandPrecision::BF16 :
-          (ioPrecision == GEMMOperandPrecision::FP32 ? GEMMOperandPrecision::FP32 : GEMMOperandPrecision::FP16)) :
-      GEMMOperandPrecision::FP32;
+  const GEMMOperandPrecision lPrecision = GEMMOperandPrecision::FP32;
   const GEMMOperandPrecision dPrecision =
       lowPrecisionIntermediates ?
       (ioPrecision == GEMMOperandPrecision::FP32 ? GEMMOperandPrecision::FP32 : GEMMOperandPrecision::BF16) :

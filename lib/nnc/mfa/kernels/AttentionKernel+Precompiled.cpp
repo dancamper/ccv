@@ -35,8 +35,13 @@ MTL::Library* AttentionKernel::findPrecompiledLibrary(AttentionKernelDescriptor 
     memoryPrecisions[AttentionOperand::K].value() == GEMMOperandPrecision::BF16 ||
     memoryPrecisions[AttentionOperand::V].value() == GEMMOperandPrecision::BF16 ||
     memoryPrecisions[AttentionOperand::dO].value() == GEMMOperandPrecision::BF16;
-  bool lowPrecisionIntermediates = memoryPrecisions[AttentionOperand::L].value() != GEMMOperandPrecision::FP32 ||
-    memoryPrecisions[AttentionOperand::D].value() != GEMMOperandPrecision::FP32;
+  const bool lowPrecisionL = memoryPrecisions[AttentionOperand::L].value() != GEMMOperandPrecision::FP32;
+  const bool lowPrecisionD = memoryPrecisions[AttentionOperand::D].value() != GEMMOperandPrecision::FP32;
+  // Precompiled kernels encode one precision for both L and D. A hybrid
+  // descriptor would otherwise select a binary with an incompatible L ABI.
+  if (lowPrecisionL != lowPrecisionD)
+    return 0;
+  const bool lowPrecisionIntermediates = lowPrecisionL;
   if (type.value == AttentionKernelType::forward &&
     blockDimensions[0] == 32 && blockDimensions[1] == 128 && blockDimensions[2] == 32 &&
     headDimension == 40 &&
