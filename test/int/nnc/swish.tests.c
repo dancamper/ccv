@@ -207,7 +207,7 @@ TEST_CASE("swish mul gradient in float")
 		gate->data.f32[i] = (float)(6.0 * dsfmt_genrand_open_close(&dsfmt) - 3.0);
 		gradient->data.f32[i] = (float)(2.0 * dsfmt_genrand_open_close(&dsfmt) - 1.0);
 	}
-	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gradient, value, gate), TENSOR_LIST(dvalue, dgate), 0);
+	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gradient, value, gate, 0), TENSOR_LIST(dvalue, dgate), 0);
 	for (i = 0; i < 17 * 13; i++)
 	{
 		const float x = gate->data.f32[i];
@@ -220,9 +220,9 @@ TEST_CASE("swish mul gradient in float")
 	}
 	ccv_nnc_tensor_t* const dvalue_only = ccv_nnc_tensor_new(0, CPU_TENSOR_NCHW(32F, 17, 13), 0);
 	ccv_nnc_tensor_t* const dgate_only = ccv_nnc_tensor_new(0, CPU_TENSOR_NCHW(32F, 17, 13), 0);
-	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gradient, 0, gate), TENSOR_LIST(dvalue_only, 0), 0);
+	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gradient, 0, gate, 0), TENSOR_LIST(dvalue_only, 0), 0);
 	REQUIRE_TENSOR_EQ(dvalue_only, dvalue, "swish mul backward should support only value gradient");
-	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gradient, value, gate), TENSOR_LIST(0, dgate_only), 0);
+	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gradient, value, gate, 0), TENSOR_LIST(0, dgate_only), 0);
 	REQUIRE_TENSOR_EQ(dgate_only, dgate, "swish mul backward should support only gate gradient");
 	ccv_nnc_tensor_free(value);
 	ccv_nnc_tensor_free(gate);
@@ -312,16 +312,16 @@ TEST_CASE("gpu swish mul gradient in float")
 	ccv_nnc_tensor_t* const dgate = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(32F, 17, 13), 0);
 	ccv_nnc_tensor_t* const dvalue_only = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(32F, 17, 13), 0);
 	ccv_nnc_tensor_t* const dgate_only = ccv_nnc_tensor_new(0, CPU_TENSOR_NHWC(32F, 17, 13), 0);
-	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gradient, value, gate), TENSOR_LIST(expected_dvalue, expected_dgate), 0);
+	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gradient, value, gate, 0), TENSOR_LIST(expected_dvalue, expected_dgate), 0);
 	ccv_nnc_cmd_exec(CMD_DATA_TRANSFER_FORWARD(), ccv_nnc_no_hint, 0, TENSOR_LIST(value, gate, gradient), TENSOR_LIST(gpu_value, gpu_gate, gpu_gradient), 0);
-	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_gradient, gpu_value, gpu_gate), TENSOR_LIST(gpu_dvalue, gpu_dgate), 0);
+	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_gradient, gpu_value, gpu_gate, 0), TENSOR_LIST(gpu_dvalue, gpu_dgate), 0);
 	ccv_nnc_cmd_exec(CMD_DATA_TRANSFER_FORWARD(), ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_dvalue, gpu_dgate), TENSOR_LIST(dvalue, dgate), 0);
 	REQUIRE_ARRAY_EQ_WITH_TOLERANCE(float, expected_dvalue->data.f32, dvalue->data.f32, 17 * 13, 1e-5, "gpu swish mul value gradient should match CPU");
 	REQUIRE_ARRAY_EQ_WITH_TOLERANCE(float, expected_dgate->data.f32, dgate->data.f32, 17 * 13, 1e-5, "gpu swish mul gate gradient should match CPU");
-	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_gradient, 0, gpu_gate), TENSOR_LIST(gpu_dvalue_only, 0), 0);
+	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_gradient, 0, gpu_gate, 0), TENSOR_LIST(gpu_dvalue_only, 0), 0);
 	ccv_nnc_cmd_exec(CMD_DATA_TRANSFER_FORWARD(), ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_dvalue_only), TENSOR_LIST(dvalue_only), 0);
 	REQUIRE_ARRAY_EQ_WITH_TOLERANCE(float, expected_dvalue->data.f32, dvalue_only->data.f32, 17 * 13, 1e-5, "gpu swish mul should support only value gradient");
-	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_gradient, gpu_value, gpu_gate), TENSOR_LIST(0, gpu_dgate_only), 0);
+	ccv_nnc_cmd_exec(CMD_SWISH_MUL_BACKWARD(1.7, 0.25), ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_gradient, gpu_value, gpu_gate, 0), TENSOR_LIST(0, gpu_dgate_only), 0);
 	ccv_nnc_cmd_exec(CMD_DATA_TRANSFER_FORWARD(), ccv_nnc_no_hint, 0, TENSOR_LIST(gpu_dgate_only), TENSOR_LIST(dgate_only), 0);
 	REQUIRE_ARRAY_EQ_WITH_TOLERANCE(float, expected_dgate->data.f32, dgate_only->data.f32, 17 * 13, 1e-5, "gpu swish mul should support only gate gradient");
 	ccv_nnc_tensor_free(value);

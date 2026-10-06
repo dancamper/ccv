@@ -168,7 +168,8 @@ static int _ccv_nnc_swish_mul_forw(const ccv_nnc_cmd_t cmd, const ccv_nnc_hint_t
 
 static int _ccv_nnc_swish_mul_back(const ccv_nnc_cmd_t cmd, const ccv_nnc_hint_t hint, const int flags, ccv_nnc_tensor_t* const* const inputs, const int input_size, ccv_nnc_tensor_t* const* const outputs, const int output_size, ccv_nnc_stream_context_t* const stream_context)
 {
-	assert(input_size == 3);
+	assert(input_size == 4);
+	assert(!inputs[3]);
 	assert(output_size >= 1);
 	const float beta = cmd.info.swish_mul.beta;
 	const float scale = cmd.info.swish_mul.scale;

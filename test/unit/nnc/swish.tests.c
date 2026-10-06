@@ -11,6 +11,84 @@ TEST_SETUP()
 	ccv_nnc_init();
 }
 
+static void _test_swish_mul_autodiff(const int wrt, int* const __case_result__)
+{
+	const float beta = 1.7;
+	const float scale = 0.25;
+	ccv_nnc_symbolic_graph_t* const symbolic_graph = ccv_nnc_symbolic_graph_new();
+	const ccv_nnc_tensor_symbol_t value = ccv_nnc_tensor_symbol_new(symbolic_graph, CPU_TENSOR_NHWC(32F, 7), "value");
+	const ccv_nnc_tensor_symbol_t gate = ccv_nnc_tensor_symbol_new(symbolic_graph, CPU_TENSOR_NHWC(32F, 7), "gate");
+	const ccv_nnc_tensor_symbol_t output = ccv_nnc_tensor_symbol_new(symbolic_graph, ccv_nnc_tensor_auto, "output");
+	ccv_nnc_graph_exec_symbol_new(symbolic_graph, CMD_SWISH_MUL_FORWARD(beta, scale), TENSOR_SYMBOL_LIST(value, gate), TENSOR_SYMBOL_LIST(output), "swish_mul");
+	ccv_nnc_graph_exec_symbol_autogen(symbolic_graph, 0, 0, CCV_NNC_AUTOGEN_ALL_EXECS | CCV_NNC_AUTOGEN_SOURCES_AND_DESTINATIONS);
+	if (wrt == 3)
+		ccv_nnc_symbolic_graph_backward(symbolic_graph, TENSOR_SYMBOL_LIST(output), TENSOR_SYMBOL_LIST(value, gate), SYMBOLIC_GRAPH_SOURCES(symbolic_graph), SYMBOLIC_GRAPH_DESTINATIONS(symbolic_graph));
+	else if (wrt == 1)
+		ccv_nnc_symbolic_graph_backward(symbolic_graph, TENSOR_SYMBOL_LIST(output), TENSOR_SYMBOL_LIST(value), SYMBOLIC_GRAPH_SOURCES(symbolic_graph), SYMBOLIC_GRAPH_DESTINATIONS(symbolic_graph));
+	else
+		ccv_nnc_symbolic_graph_backward(symbolic_graph, TENSOR_SYMBOL_LIST(output), TENSOR_SYMBOL_LIST(gate), SYMBOLIC_GRAPH_SOURCES(symbolic_graph), SYMBOLIC_GRAPH_DESTINATIONS(symbolic_graph));
+	ccv_nnc_graph_exec_symbol_autogen(symbolic_graph, 0, 0, CCV_NNC_AUTOGEN_ALL_EXECS | CCV_NNC_AUTOGEN_SOURCES_AND_DESTINATIONS);
+	const ccv_nnc_tensor_symbol_t doutput = ccv_nnc_tensor_symbol_for_backward(symbolic_graph, output);
+	const ccv_nnc_tensor_symbol_t dvalue = (wrt & 1) ? ccv_nnc_tensor_symbol_for_backward(symbolic_graph, value) : NO_TENSOR_SYMBOL;
+	const ccv_nnc_tensor_symbol_t dgate = (wrt & 2) ? ccv_nnc_tensor_symbol_for_backward(symbolic_graph, gate) : NO_TENSOR_SYMBOL;
+	ccv_nnc_graph_t* graph = 0;
+	ccv_nnc_tensor_arena_t* tensor_arena = 0;
+	ccv_nnc_graph_exec_arena_t* graph_exec_arena = 0;
+	if (wrt == 3)
+		ccv_nnc_symbolic_graph_compile(symbolic_graph, ccv_nnc_default_compile_params, 0, 0, TENSOR_SYMBOL_LIST(output, dvalue, dgate), SYMBOLIC_GRAPH_SOURCES(symbolic_graph), SYMBOLIC_GRAPH_DESTINATIONS(symbolic_graph), &graph, &tensor_arena, &graph_exec_arena);
+	else if (wrt == 1)
+		ccv_nnc_symbolic_graph_compile(symbolic_graph, ccv_nnc_default_compile_params, 0, 0, TENSOR_SYMBOL_LIST(output, dvalue), SYMBOLIC_GRAPH_SOURCES(symbolic_graph), SYMBOLIC_GRAPH_DESTINATIONS(symbolic_graph), &graph, &tensor_arena, &graph_exec_arena);
+	else
+		ccv_nnc_symbolic_graph_compile(symbolic_graph, ccv_nnc_default_compile_params, 0, 0, TENSOR_SYMBOL_LIST(output, dgate), SYMBOLIC_GRAPH_SOURCES(symbolic_graph), SYMBOLIC_GRAPH_DESTINATIONS(symbolic_graph), &graph, &tensor_arena, &graph_exec_arena);
+	ccv_nnc_tensor_t* const value_tensor = ccv_nnc_tensor_from_symbol(tensor_arena, value);
+	ccv_nnc_tensor_t* const gate_tensor = ccv_nnc_tensor_from_symbol(tensor_arena, gate);
+	ccv_nnc_tensor_t* const doutput_tensor = ccv_nnc_tensor_from_symbol(tensor_arena, doutput);
+	int i;
+	for (i = 0; i < 7; i++)
+	{
+		value_tensor->data.f32[i] = (float)(i - 3) * 0.4f;
+		gate_tensor->data.f32[i] = (float)(i - 2) * 0.35f;
+		doutput_tensor->data.f32[i] = (float)(i + 1) * 0.125f;
+	}
+	ccv_nnc_graph_run(graph, 0, TRAVERSE_FULL, 0, 0);
+	ccv_nnc_tensor_t* const dvalue_tensor = (wrt & 1) ? ccv_nnc_tensor_from_symbol(tensor_arena, dvalue) : 0;
+	ccv_nnc_tensor_t* const dgate_tensor = (wrt & 2) ? ccv_nnc_tensor_from_symbol(tensor_arena, dgate) : 0;
+	const float epsilon = 1e-3;
+	for (i = 0; i < 7; i++)
+	{
+		const float v = value_tensor->data.f32[i];
+		const float g = gate_tensor->data.f32[i];
+		const float incoming_gradient = doutput_tensor->data.f32[i];
+		if (dvalue_tensor)
+		{
+			const float plus = scale * (v + epsilon) * g / (1 + expf(-beta * g));
+			const float minus = scale * (v - epsilon) * g / (1 + expf(-beta * g));
+			const float numerical = incoming_gradient * (plus - minus) / (2 * epsilon);
+			REQUIRE_EQ_WITH_TOLERANCE(numerical, dvalue_tensor->data.f32[i], 1e-4, "swish mul autodiff value gradient should match numerical gradient");
+		}
+		if (dgate_tensor)
+		{
+			const float plus_gate = g + epsilon;
+			const float minus_gate = g - epsilon;
+			const float plus = scale * v * plus_gate / (1 + expf(-beta * plus_gate));
+			const float minus = scale * v * minus_gate / (1 + expf(-beta * minus_gate));
+			const float numerical = incoming_gradient * (plus - minus) / (2 * epsilon);
+			REQUIRE_EQ_WITH_TOLERANCE(numerical, dgate_tensor->data.f32[i], 1e-4, "swish mul autodiff gate gradient should match numerical gradient");
+		}
+	}
+	ccv_nnc_graph_free(graph);
+	ccv_nnc_tensor_arena_free(tensor_arena);
+	ccv_nnc_graph_exec_arena_free(graph_exec_arena);
+	ccv_nnc_symbolic_graph_free(symbolic_graph);
+}
+
+TEST_CASE("swish mul autodiff uses canonical backward inputs")
+{
+	_test_swish_mul_autodiff(3, __case_result__);
+	_test_swish_mul_autodiff(1, __case_result__);
+	_test_swish_mul_autodiff(2, __case_result__);
+}
+
 TEST_CASE("compare swish gradient with fine-grained symbolic graph")
 {
 	ccv_nnc_symbolic_graph_t* const symbolic_graph = ccv_nnc_symbolic_graph_new();
