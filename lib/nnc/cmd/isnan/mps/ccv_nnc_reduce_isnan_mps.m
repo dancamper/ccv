@@ -32,8 +32,15 @@ static int _ccv_nnc_reduce_isnan_forw(const ccv_nnc_cmd_t cmd, const ccv_nnc_hin
 				[inputTensors addObject:mps_input_a];
 				MPSGraphShapedType* mps_a_shape = ccv_nnc_mps_graph_tensor_input_shape(&atv, atv.info.dim, atv.stride);
 				[inputShapedTypes addObject:mps_a_shape];
-				MPSGraphTensor* mps_b = [graph isNaNWithTensor:mps_a name:nil];
-				mps_b = [graph castTensor:mps_b toType:MPSDataTypeInt32 name:nil];
+				MPSGraphTensor* mps_b;
+				if (cmd.cmd == CCV_NNC_REDUCE_ISNAN_OR_INF_FORWARD)
+				{
+					mps_b = [graph castTensor:[graph isFiniteWithTensor:mps_a name:nil] toType:MPSDataTypeInt32 name:nil];
+					mps_b = [graph subtractionWithPrimaryTensor:[graph constantWithScalar:1 dataType:MPSDataTypeInt32] secondaryTensor:mps_b name:nil];
+				} else {
+					mps_b = [graph isNaNWithTensor:mps_a name:nil];
+					mps_b = [graph castTensor:mps_b toType:MPSDataTypeInt32 name:nil];
+				}
 				[resultTensors addObject:mps_b];
 			});
 			MPSGraphTensorData* data_a = ccv_nnc_mps_graph_tensor_data(&atv, atv.info.dim, atv.stride);
@@ -52,11 +59,19 @@ static int _ccv_nnc_reduce_isnan_forw(const ccv_nnc_cmd_t cmd, const ccv_nnc_hin
 				for (i = 0; i < a_nd; i++)
 					if (btv.info.dim[i] != atv.info.dim[i])
 						[axes addObject:@(i)];
-				MPSGraphTensor* mps_b = [graph reductionMaximumPropagateNaNWithTensor:mps_a axes:axes name:nil];
+				MPSGraphTensor* mps_b;
+				if (cmd.cmd == CCV_NNC_REDUCE_ISNAN_OR_INF_FORWARD)
+				{
+					mps_b = [graph castTensor:[graph isFiniteWithTensor:mps_a name:nil] toType:MPSDataTypeInt32 name:nil];
+					mps_b = [graph subtractionWithPrimaryTensor:[graph constantWithScalar:1 dataType:MPSDataTypeInt32] secondaryTensor:mps_b name:nil];
+					mps_b = [graph reductionMaximumWithTensor:mps_b axes:axes name:nil];
+				} else {
+					mps_b = [graph reductionMaximumPropagateNaNWithTensor:mps_a axes:axes name:nil];
+					mps_b = [graph isNaNWithTensor:mps_b name:nil];
+					mps_b = [graph castTensor:mps_b toType:MPSDataTypeInt32 name:nil];
+				}
 				[axes release];
-				MPSGraphTensor* mps_c = [graph isNaNWithTensor:mps_b name:nil];
-				mps_c = [graph castTensor:mps_c toType:MPSDataTypeInt32 name:nil];
-				[resultTensors addObject:mps_c];
+				[resultTensors addObject:mps_b];
 			});
 			MPSGraphTensorData* data_a = ccv_nnc_mps_graph_tensor_data(&atv, atv.info.dim, atv.stride);
 			ccv_nnc_mps_graph_executable_result(executable, command_buffer, @[data_a], &tvs[1], (int*[]){ btv.info.dim }, (int*[]){ btv.stride }, 1, 0);
@@ -67,6 +82,15 @@ static int _ccv_nnc_reduce_isnan_forw(const ccv_nnc_cmd_t cmd, const ccv_nnc_hin
 }
 
 REGISTER_COMMAND_BACKEND(CCV_NNC_REDUCE_ISNAN_FORWARD, CCV_NNC_BACKEND_MPS)(ccv_nnc_cmd_backend_registry_t* const registry)
+{
+	registry->tensor_formats = CCV_TENSOR_FORMAT_NCHW | CCV_TENSOR_FORMAT_NHWC | CCV_TENSOR_FORMAT_CHWN;
+	registry->tensor_datatypes = CCV_32F | CCV_16F | CCV_32S;
+	registry->tensor_memory = CCV_TENSOR_GPU_MEMORY;
+	registry->algorithms = 1;
+	registry->exec = _ccv_nnc_reduce_isnan_forw;
+}
+
+REGISTER_COMMAND_BACKEND(CCV_NNC_REDUCE_ISNAN_OR_INF_FORWARD, CCV_NNC_BACKEND_MPS)(ccv_nnc_cmd_backend_registry_t* const registry)
 {
 	registry->tensor_formats = CCV_TENSOR_FORMAT_NCHW | CCV_TENSOR_FORMAT_NHWC | CCV_TENSOR_FORMAT_CHWN;
 	registry->tensor_datatypes = CCV_32F | CCV_16F | CCV_32S;

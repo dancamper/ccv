@@ -177,26 +177,43 @@ void ccv_cnnp_model_parameters_clip_grad_norm(ccv_cnnp_model_t* const model, con
 
 // MARK - Add-on Functions
 
-static int _ccv_cnnp_model_isnan(const ccv_nnc_cmd_t cmd, const ccv_nnc_hint_t hint, const int flags, ccv_nnc_tensor_t* const* const inputs, const int input_size, ccv_nnc_tensor_t* const* const outputs, const int output_size, ccv_nnc_stream_context_t* const stream_context)
+static int _ccv_cnnp_model_reduce_non_finite(const ccv_nnc_cmd_t cmd, const ccv_nnc_hint_t hint, const int flags, ccv_nnc_tensor_t* const* const inputs, const int input_size, ccv_nnc_tensor_t* const* const outputs, const int output_size, ccv_nnc_stream_context_t* const stream_context, const int include_inf)
 {
 	const int device_id = CCV_TENSOR_GET_DEVICE_ID(inputs[0]->info.type);
 	ccv_nnc_tensor_t* const old_isnanr = outputs[1 + device_id * 2];
 	ccv_nnc_tensor_t* const isnanr = outputs[1 + device_id * 2 + 1];
-	ccv_nnc_cmd_t reduce_cmd = CMD_REDUCE_ISNAN_FORWARD();
+	ccv_nnc_cmd_t reduce_cmd = include_inf ? CMD_REDUCE_ISNAN_OR_INF_FORWARD() : CMD_REDUCE_ISNAN_FORWARD();
 	reduce_cmd.info.reduce.count = ccv_nnc_tensor_nd(inputs[0]->info.dim);
 	int i;
-	for (i = 0; i < cmd.info.reduce.count; i++)
+	for (i = 0; i < reduce_cmd.info.reduce.count; i++)
 		reduce_cmd.info.reduce.axis[i] = i;
 	ccv_nnc_cmd_exec(reduce_cmd, hint, flags, TENSOR_LIST(inputs[0]), TENSOR_LIST(isnanr), stream_context);
-	ccv_nnc_cmd_exec(CMD_EWSUM_FORWARD(), hint, flags, TENSOR_LIST(old_isnanr, isnanr), TENSOR_LIST(old_isnanr), stream_context);
+	if (CCV_TENSOR_GET_MEMORY(old_isnanr->info.type) == CCV_TENSOR_CPU_MEMORY)
+		old_isnanr->data.i32[0] |= isnanr->data.i32[0];
+	else
+		ccv_nnc_cmd_exec(CMD_EWSUM_FORWARD(), hint, flags, TENSOR_LIST(old_isnanr, isnanr), TENSOR_LIST(old_isnanr), stream_context);
 	return CCV_NNC_EXEC_SUCCESS;
+}
+
+static int _ccv_cnnp_model_isnan(const ccv_nnc_cmd_t cmd, const ccv_nnc_hint_t hint, const int flags, ccv_nnc_tensor_t* const* const inputs, const int input_size, ccv_nnc_tensor_t* const* const outputs, const int output_size, ccv_nnc_stream_context_t* const stream_context)
+{
+	return _ccv_cnnp_model_reduce_non_finite(cmd, hint, flags, inputs, input_size, outputs, output_size, stream_context, 0);
+}
+
+static int _ccv_cnnp_model_has_non_finite(const ccv_nnc_cmd_t cmd, const ccv_nnc_hint_t hint, const int flags, ccv_nnc_tensor_t* const* const inputs, const int input_size, ccv_nnc_tensor_t* const* const outputs, const int output_size, ccv_nnc_stream_context_t* const stream_context)
+{
+	return _ccv_cnnp_model_reduce_non_finite(cmd, hint, flags, inputs, input_size, outputs, output_size, stream_context, 1);
 }
 
 static ccv_nnc_cmd_vtab_t reduce_isnan_vtab = {
 	.exec = _ccv_cnnp_model_isnan
 };
 
-int ccv_cnnp_model_parameter_gradients_isnan(ccv_cnnp_model_t* const model, const ccv_cnnp_model_io_t parameters, ccv_nnc_stream_context_t* const stream_context)
+static ccv_nnc_cmd_vtab_t reduce_non_finite_vtab = {
+	.exec = _ccv_cnnp_model_has_non_finite
+};
+
+static int _ccv_cnnp_model_parameter_gradients_reduce_non_finite(ccv_cnnp_model_t* const model, const ccv_cnnp_model_io_t parameters, ccv_nnc_cmd_vtab_t* const vtab, ccv_nnc_stream_context_t* const stream_context)
 {
 	ccv_cnnp_compiled_data_t* const compiled_data = model->compiled_data;
 	assert(compiled_data);
@@ -266,7 +283,7 @@ int ccv_cnnp_model_parameter_gradients_isnan(ccv_cnnp_model_t* const model, cons
 	// Gather isnanr.
 	ccv_nnc_cmd_t reduce_cmd = {
 		.cmd = CCV_NNC_CUSTOM_FORWARD,
-		.isa = &reduce_isnan_vtab,
+		.isa = vtab,
 	};
 	ccv_cnnp_model_parameter_gradients_map(model, parameters, reduce_cmd, ccv_nnc_no_hint, 0, 0, 0, isnanr, parallel_count * 2, stream_context);
 	for (i = 0; i < parallel_count; i++)
@@ -302,6 +319,16 @@ int ccv_cnnp_model_parameter_gradients_isnan(ccv_cnnp_model_t* const model, cons
 	for (i = 0; i < parallel_count; i++)
 		ccv_nnc_tensor_free(isnanr[i * 2]);
 	return retval;
+}
+
+int ccv_cnnp_model_parameter_gradients_isnan(ccv_cnnp_model_t* const model, const ccv_cnnp_model_io_t parameters, ccv_nnc_stream_context_t* const stream_context)
+{
+	return _ccv_cnnp_model_parameter_gradients_reduce_non_finite(model, parameters, &reduce_isnan_vtab, stream_context);
+}
+
+int ccv_cnnp_model_parameter_gradients_has_non_finite(ccv_cnnp_model_t* const model, const ccv_cnnp_model_io_t parameters, ccv_nnc_stream_context_t* const stream_context)
+{
+	return _ccv_cnnp_model_parameter_gradients_reduce_non_finite(model, parameters, &reduce_non_finite_vtab, stream_context);
 }
 
 // MARK - Core Layers
